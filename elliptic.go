@@ -129,12 +129,14 @@ func (key *PublicKey) Serialize() []byte {
 // and whether the private key belongs to the given public key (if privkey is
 // not nil). No error means that the check was successful.
 func check_keys(curve Curve, pubkey *PublicKey, privkey *PrivateKey) error {
+	// initialization
 	key := C.EC_KEY_new_by_curve_name(C.int(curve))
 	defer C.EC_KEY_free(key)
 	if key == nil {
 		return errors.New("[OpenSSL] EC_KEY_new_by_curve_name FAIL")
 	}
 
+	// convert bytes to BIGNUMs
 	pub_key_x := C.BN_bin2bn((*C.uchar)(unsafe.Pointer(&pubkey.X[0])),
 		C.int(len(pubkey.X)), nil)
 	defer C.BN_free(pub_key_x)
@@ -142,6 +144,7 @@ func check_keys(curve Curve, pubkey *PublicKey, privkey *PrivateKey) error {
 		C.int(len(pubkey.Y)), nil)
 	defer C.BN_free(pub_key_y)
 
+	// also verify private key if it exists
 	if privkey != nil {
 		priv_key := C.BN_bin2bn((*C.uchar)(unsafe.Pointer(&privkey.Key[0])),
 			C.int(len(privkey.Key)), nil)
@@ -156,6 +159,7 @@ func check_keys(curve Curve, pubkey *PublicKey, privkey *PrivateKey) error {
 	pub_key := C.EC_POINT_new(group)
 	defer C.EC_POINT_free(pub_key)
 
+	// set coordinates to get pubkey and then set pubkey
 	if C.EC_POINT_set_affine_coordinates_GFp(group, pub_key, pub_key_x,
 		pub_key_y, nil) == C.int(0) {
 		return errors.New("[OpenSSL] EC_POINT_set_affine_coordinates_GFp FAIL")
@@ -163,6 +167,7 @@ func check_keys(curve Curve, pubkey *PublicKey, privkey *PrivateKey) error {
 	if C.EC_KEY_set_public_key(key, pub_key) == C.int(0) {
 		return errors.New("[OpenSSL] EC_KEY_set_public_key FAIL")
 	}
+	// validate the key
 	if C.EC_KEY_check_key(key) == C.int(0) {
 		return errors.New("[OpenSSL] EC_KEY_check_key FAIL")
 	}
@@ -215,14 +220,7 @@ func PrivateKeyFromBytes(raw []byte) (*PrivateKey, error) {
 // Derive the public key from the private key, as done in:
 // http://wiki.openssl.org/index.php/Elliptic_Curve_Cryptography#Working_with_Keys
 func (key *PrivateKey) derivePublicKey() error {
-	priv_key := C.BN_bin2bn((*C.uchar)(unsafe.Pointer(&key.Key[0])),
-		C.int(len(key.Key)), nil)
-	defer C.BN_free(priv_key)
-	pub_key_x := C.BN_new()
-	defer C.BN_free(pub_key_x)
-	pub_key_y := C.BN_new()
-	defer C.BN_free(pub_key_y)
-
+	// initialization
 	k := C.EC_KEY_new_by_curve_name(C.int(key.Curve))
 	defer C.EC_KEY_free(k)
 	if key == nil {
@@ -233,6 +231,16 @@ func (key *PrivateKey) derivePublicKey() error {
 	pub_key := C.EC_POINT_new(group)
 	defer C.EC_POINT_free(pub_key)
 
+	// create BIGNUMs
+	priv_key := C.BN_bin2bn((*C.uchar)(unsafe.Pointer(&key.Key[0])),
+		C.int(len(key.Key)), nil)
+	defer C.BN_free(priv_key)
+	pub_key_x := C.BN_new()
+	defer C.BN_free(pub_key_x)
+	pub_key_y := C.BN_new()
+	defer C.BN_free(pub_key_y)
+
+	// the actual step which does the conversion from private to public key
 	if C.EC_POINT_mul(group, pub_key, priv_key, nil, nil, nil) == C.int(0) {
 		return errors.New("[OpenSSL] EC_POINT_mul FAIL")
 	}
@@ -243,6 +251,7 @@ func (key *PrivateKey) derivePublicKey() error {
 		return errors.New("[OpenSSL] EC_KEY_set_public_key FAIL")
 	}
 
+	// get X and Y coords from pub_key
 	if C.EC_POINT_get_affine_coordinates_GFp(group, pub_key, pub_key_x,
 		pub_key_y, nil) == C.int(0) {
 		return errors.New("[OpenSSL] EC_POINT_get_affine_coordinates_GFp FAIL")
@@ -258,14 +267,7 @@ func (key *PrivateKey) derivePublicKey() error {
 
 // Generate a random private key for the given curve.
 func GeneratePrivateKey(curve Curve) (*PrivateKey, error) {
-	privateKey := new(PrivateKey)
-	privateKey.Curve = curve
-
-	pub_key_x := C.BN_new()
-	defer C.BN_free(pub_key_x)
-	pub_key_y := C.BN_new()
-	defer C.BN_free(pub_key_y)
-
+	// initialization
 	key := C.EC_KEY_new_by_curve_name(C.int(curve))
 	defer C.EC_KEY_free(key)
 	if key == nil {
@@ -282,12 +284,22 @@ func GeneratePrivateKey(curve Curve) (*PrivateKey, error) {
 	group := C.EC_KEY_get0_group(key)
 	pub_key := C.EC_KEY_get0_public_key(key)
 
+	// create BIGNUMs
+	pub_key_x := C.BN_new()
+	defer C.BN_free(pub_key_x)
+	pub_key_y := C.BN_new()
+	defer C.BN_free(pub_key_y)
+
+	// get X and Y coords from pub_key
 	if C.EC_POINT_get_affine_coordinates_GFp(group, pub_key, pub_key_x,
 		pub_key_y, nil) == C.int(0) {
 		return nil, errors.New(
 			"[OpenSSL] EC_POINT_get_affine_coordinates_GFp FAIL")
 	}
 
+	// start transfering data back to Go
+	privateKey := new(PrivateKey)
+	privateKey.Curve = curve
 	privateKey.Key = make([]byte, C.BN_num_bytes_not_a_macro(priv_key))
 	privateKey.PublicKey.X = make([]byte, C.BN_num_bytes_not_a_macro(pub_key_x))
 	privateKey.PublicKey.Y = make([]byte, C.BN_num_bytes_not_a_macro(pub_key_y))
@@ -296,6 +308,7 @@ func GeneratePrivateKey(curve Curve) (*PrivateKey, error) {
 	C.BN_bn2bin(pub_key_x, (*C.uchar)(unsafe.Pointer(&privateKey.PublicKey.X[0])))
 	C.BN_bn2bin(pub_key_y, (*C.uchar)(unsafe.Pointer(&privateKey.PublicKey.Y[0])))
 
+	// do a sanity check to ensure that everything went as planned
 	err := check_keys(privateKey.Curve, &privateKey.PublicKey, privateKey)
 	if err != nil {
 		return nil, errors.New("key check failed: " + err.Error())
@@ -328,12 +341,17 @@ func (privKey *PrivateKey) GetRawECDHKey(pubKey *PublicKey, length int) ([]byte,
 		return nil, errors.New("ECC keys must be from the same curve")
 	}
 
+	// initialization
 	other_key := C.EC_KEY_new_by_curve_name(C.int(pubKey.Curve))
 	defer C.EC_KEY_free(other_key)
 	if other_key == nil {
 		return nil, errors.New("[OpenSSL] EC_KEY_new_by_curve_name FAIL")
 	}
+	other_group := C.EC_KEY_get0_group(other_key)
+	other_pub_key := C.EC_POINT_new(other_group)
+	defer C.EC_POINT_free(other_pub_key)
 
+	// create BIGNUMs
 	other_pub_key_x := C.BN_bin2bn((*C.uchar)(unsafe.Pointer(&privKey.PublicKey.X[0])),
 		C.int(len(privKey.PublicKey.X)), nil)
 	defer C.BN_free(other_pub_key_x)
@@ -341,10 +359,7 @@ func (privKey *PrivateKey) GetRawECDHKey(pubKey *PublicKey, length int) ([]byte,
 		C.int(len(privKey.PublicKey.Y)), nil)
 	defer C.BN_free(other_pub_key_y)
 
-	other_group := C.EC_KEY_get0_group(other_key)
-	other_pub_key := C.EC_POINT_new(other_group)
-	defer C.EC_POINT_free(other_pub_key)
-
+	// set the coordinates to get public key and then set public key
 	if C.EC_POINT_set_affine_coordinates_GFp(other_group, other_pub_key,
 		other_pub_key_x, other_pub_key_y, nil) == C.int(0) {
 		return nil, errors.New("[OpenSSL] EC_POINT_set_affine_coordinates_GFp FAIL")
@@ -352,27 +367,32 @@ func (privKey *PrivateKey) GetRawECDHKey(pubKey *PublicKey, length int) ([]byte,
 	if C.EC_KEY_set_public_key(other_key, other_pub_key) == C.int(0) {
 		return nil, errors.New("[OpenSSL] EC_KEY_set_public_key FAIL")
 	}
-	if C.EC_KEY_check_key(other_key) == C.int(0) {
+	if C.EC_KEY_check_key(other_key) == C.int(0) { // sanity check
 		return nil, errors.New("[OpenSSL] EC_KEY_check_key FAIL")
 	}
 
+	// initialization for our own private key
 	own_key := C.EC_KEY_new_by_curve_name(C.int(privKey.Curve))
+	defer C.EC_KEY_free(own_key)
 	if own_key == nil {
 		return nil, errors.New("[OpenSSL] EC_KEY_new_by_curve_name FAIL")
 	}
+
+	// create BIGNUM
 	own_priv_key := C.BN_bin2bn((*C.uchar)(unsafe.Pointer(&privKey.Key[0])),
 		C.int(len(privKey.Key)), nil)
-
+	defer C.BN_free(own_priv_key)
 	if (C.EC_KEY_set_private_key(own_key, own_priv_key)) == C.int(0) {
 		return nil, errors.New("[OpenSSL] EC_KEY_set_private_key FAIL")
 	}
 	C.ECDH_set_method(own_key, C.ECDH_OpenSSL())
 
+	// compute the shared secret of the specified length
 	ecdhKey := make([]byte, length)
-
 	ecdh_keylen := int(C.ECDH_compute_key(unsafe.Pointer(&ecdhKey[0]),
 		C.size_t(length), other_pub_key, own_key, nil))
 
+	// check if we got the length we needed
 	if ecdh_keylen != length {
 		return nil, errors.New("[OpenSSL] ECDH keylen FAIL")
 	}
