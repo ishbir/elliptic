@@ -5,12 +5,17 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"unsafe"
 )
 
 /*
 #include <openssl/obj_mac.h>
 #include <openssl/bn.h>
 #include <openssl/ec.h>
+
+static int BN_num_bytes_not_a_macro(BIGNUM* arg) {
+	BN_num_bytes(arg);
+}
 */
 import "C"
 
@@ -92,7 +97,7 @@ func PublicKeyFromBytes(raw []byte) (*PublicKey, error) {
 		return nil, errors.New("couldn't read Y")
 	}
 
-	err = check_key(key.Curve, key, nil)
+	err = check_keys(key.Curve, key, nil)
 	if err != nil {
 		return nil, errors.New("key check failed: " + err.Error())
 	}
@@ -121,7 +126,7 @@ func (key *PublicKey) Serialize() []byte {
 // Check whether the public and private keys are valid for the given curve
 // and whether the private key belongs to the given public key (if privkey is
 // not nil). No error means that the check was successful.
-func check_key(curve Curve, pubkey *PublicKey, privkey *PrivateKey) error {
+func check_keys(curve Curve, pubkey *PublicKey, privkey *PrivateKey) error {
 	return nil
 }
 
@@ -159,9 +164,51 @@ func PrivateKeyFromBytes(raw []byte) (*PrivateKey, error) {
 
 // Generate a random private key for the given curve.
 func GeneratePrivateKey(curve Curve) (*PrivateKey, error) {
-	key := new(PrivateKey)
+	privateKey := new(PrivateKey)
+	privateKey.Curve = curve
 
-	return key, nil
+	pubkey_x := C.BN_new()
+	defer C.BN_free(pubkey_x)
+	pubkey_y := C.BN_new()
+	defer C.BN_free(pubkey_y)
+
+	key := C.EC_KEY_new_by_curve_name(C.int(curve))
+	defer C.EC_KEY_free(key)
+
+	if key == nil {
+		return nil, errors.New("[OpenSSL] EC_KEY_new_by_curve_name FAIL")
+	}
+	if C.EC_KEY_generate_key(key) == C.int(0) {
+		return nil, errors.New("[OpenSSL] EC_KEY_generate_key FAIL")
+	}
+	if C.EC_KEY_check_key(key) == C.int(0) {
+		return nil, errors.New("[OpenSSL] EC_KEY_check_key FAIL")
+	}
+
+	priv_key := C.EC_KEY_get0_private_key(key)
+	group := C.EC_KEY_get0_group(key)
+	pubkey := C.EC_KEY_get0_public_key(key)
+
+	if C.EC_POINT_get_affine_coordinates_GFp(group, pubkey, pubkey_x,
+		pubkey_y, nil) == C.int(0) {
+		return nil, errors.New(
+			"[OpenSSL] EC_POINT_get_affine_coordinates_GFp FAIL")
+	}
+
+	privateKey.Key = make([]byte, C.BN_num_bytes_not_a_macro(priv_key))
+	privateKey.PublicKey.X = make([]byte, C.BN_num_bytes_not_a_macro(pubkey_x))
+	privateKey.PublicKey.Y = make([]byte, C.BN_num_bytes_not_a_macro(pubkey_y))
+
+	C.BN_bn2bin(priv_key, (*C.uchar)(unsafe.Pointer(&privateKey.Key[0])))
+	C.BN_bn2bin(pubkey_x, (*C.uchar)(unsafe.Pointer(&privateKey.PublicKey.X[0])))
+	C.BN_bn2bin(pubkey_y, (*C.uchar)(unsafe.Pointer(&privateKey.PublicKey.Y[0])))
+
+	err := check_keys(privateKey.Curve, &privateKey.PublicKey, privateKey)
+	if err != nil {
+		return nil, errors.New("key check failed: " + err.Error())
+	}
+
+	return privateKey, nil
 }
 
 // Serialize the private key into a binary format useful for network transfer or
