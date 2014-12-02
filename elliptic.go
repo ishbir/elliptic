@@ -1,5 +1,6 @@
-// build +cgo
 package elliptic
+
+// build +cgo
 
 import (
 	"bytes"
@@ -12,6 +13,7 @@ import (
 #include <openssl/obj_mac.h>
 #include <openssl/bn.h>
 #include <openssl/ec.h>
+#include <openssl/ecdh.h>
 
 static int BN_num_bytes_not_a_macro(BIGNUM* arg) {
 	BN_num_bytes(arg);
@@ -315,4 +317,65 @@ func (key *PrivateKey) Serialize() []byte {
 	b.Write(key.Key)
 
 	return b.Bytes()
+}
+
+// Generate the raw ECDH key which must be passed through an appropriate hashing
+// function before being used for encryption/decryption. length was fixed at 32
+// in pyelliptic.
+func (privKey *PrivateKey) GetRawECDHKey(pubKey *PublicKey, length int) ([]byte,
+	error) {
+	if pubKey.Curve != privKey.Curve {
+		return nil, errors.New("ECC keys must be from the same curve")
+	}
+
+	other_key := C.EC_KEY_new_by_curve_name(C.int(pubKey.Curve))
+	defer C.EC_KEY_free(other_key)
+	if other_key == nil {
+		return nil, errors.New("[OpenSSL] EC_KEY_new_by_curve_name FAIL")
+	}
+
+	other_pub_key_x := C.BN_bin2bn((*C.uchar)(unsafe.Pointer(&privKey.PublicKey.X[0])),
+		C.int(len(privKey.PublicKey.X)), nil)
+	defer C.BN_free(other_pub_key_x)
+	other_pub_key_y := C.BN_bin2bn((*C.uchar)(unsafe.Pointer(&privKey.PublicKey.Y[0])),
+		C.int(len(privKey.PublicKey.Y)), nil)
+	defer C.BN_free(other_pub_key_y)
+
+	other_group := C.EC_KEY_get0_group(other_key)
+	other_pub_key := C.EC_POINT_new(other_group)
+	defer C.EC_POINT_free(other_pub_key)
+
+	if C.EC_POINT_set_affine_coordinates_GFp(other_group, other_pub_key,
+		other_pub_key_x, other_pub_key_y, nil) == C.int(0) {
+		return nil, errors.New("[OpenSSL] EC_POINT_set_affine_coordinates_GFp FAIL")
+	}
+	if C.EC_KEY_set_public_key(other_key, other_pub_key) == C.int(0) {
+		return nil, errors.New("[OpenSSL] EC_KEY_set_public_key FAIL")
+	}
+	if C.EC_KEY_check_key(other_key) == C.int(0) {
+		return nil, errors.New("[OpenSSL] EC_KEY_check_key FAIL")
+	}
+
+	own_key := C.EC_KEY_new_by_curve_name(C.int(privKey.Curve))
+	if own_key == nil {
+		return nil, errors.New("[OpenSSL] EC_KEY_new_by_curve_name FAIL")
+	}
+	own_priv_key := C.BN_bin2bn((*C.uchar)(unsafe.Pointer(&privKey.Key[0])),
+		C.int(len(privKey.Key)), nil)
+
+	if (C.EC_KEY_set_private_key(own_key, own_priv_key)) == C.int(0) {
+		return nil, errors.New("[OpenSSL] EC_KEY_set_private_key FAIL")
+	}
+	C.ECDH_set_method(own_key, C.ECDH_OpenSSL())
+
+	ecdhKey := make([]byte, length)
+
+	ecdh_keylen := int(C.ECDH_compute_key(unsafe.Pointer(&ecdhKey[0]),
+		C.size_t(length), other_pub_key, own_key, nil))
+
+	if ecdh_keylen != length {
+		return nil, errors.New("[OpenSSL] ECDH keylen FAIL")
+	}
+
+	return ecdhKey, nil
 }
