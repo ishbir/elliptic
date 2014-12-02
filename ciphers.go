@@ -180,12 +180,12 @@ type EncryptionCipherCtx interface {
 type DecryptionCipherCtx interface {
 	CipherCtx
 
-	// pass in ciphertext, get back plaintext. can be called
-	// multiple times as needed
+	// Pass in ciphertext, get back plaintext. Can be called multiple times as
+	// needed.
 	DecryptUpdate(input []byte) ([]byte, error)
 
-	// call after all ciphertext has been passed in; may return
-	// additional plaintext if needed to finish off a block
+	// Call after all ciphertext has been passed in; may return additional
+	// plaintext if needed to finish off a block.
 	DecryptFinal() ([]byte, error)
 
 	// Call DecryptUpdate to decrypt data, and then call DecryptFinal to finish
