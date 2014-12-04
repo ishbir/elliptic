@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"unsafe"
 )
 
@@ -16,7 +17,7 @@ import (
 #include <openssl/ecdh.h>
 
 static int BN_num_bytes_not_a_macro(BIGNUM* arg) {
-	BN_num_bytes(arg);
+	return BN_num_bytes(arg);
 }
 */
 import "C"
@@ -334,8 +335,9 @@ func (key *PrivateKey) Serialize() []byte {
 
 // Generate the raw ECDH key which must be passed through an appropriate hashing
 // function before being used for encryption/decryption. length was fixed at 32
-// in pyelliptic.
-func (privKey *PrivateKey) GetRawECDHKey(pubKey *PublicKey, length int) ([]byte,
+// in pyelliptic. The maximum length of the shared key is dependent on the curve
+// used.
+func (privKey *PrivateKey) GetRawECDHKey(pubKey PublicKey, length int) ([]byte,
 	error) {
 	if pubKey.Curve != privKey.Curve {
 		return nil, errors.New("ECC keys must be from the same curve")
@@ -352,10 +354,10 @@ func (privKey *PrivateKey) GetRawECDHKey(pubKey *PublicKey, length int) ([]byte,
 	defer C.EC_POINT_free(other_pub_key)
 
 	// create BIGNUMs
-	other_pub_key_x := C.BN_bin2bn((*C.uchar)(unsafe.Pointer(&privKey.PublicKey.X[0])),
+	other_pub_key_x := C.BN_bin2bn((*C.uchar)(unsafe.Pointer(&pubKey.X[0])),
 		C.int(len(privKey.PublicKey.X)), nil)
 	defer C.BN_free(other_pub_key_x)
-	other_pub_key_y := C.BN_bin2bn((*C.uchar)(unsafe.Pointer(&privKey.PublicKey.Y[0])),
+	other_pub_key_y := C.BN_bin2bn((*C.uchar)(unsafe.Pointer(&pubKey.Y[0])),
 		C.int(len(privKey.PublicKey.Y)), nil)
 	defer C.BN_free(other_pub_key_y)
 
@@ -394,7 +396,8 @@ func (privKey *PrivateKey) GetRawECDHKey(pubKey *PublicKey, length int) ([]byte,
 
 	// check if we got the length we needed
 	if ecdh_keylen != length {
-		return nil, errors.New("[OpenSSL] ECDH keylen FAIL")
+		return nil, errors.New(fmt.Sprintf("[OpenSSL] ECDH keylen FAIL, got"+
+			" %d expected %d ", ecdh_keylen, length))
 	}
 
 	return ecdhKey, nil
