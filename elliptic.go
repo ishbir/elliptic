@@ -129,7 +129,7 @@ func (key *PublicKey) Serialize() []byte {
 	return b.Bytes()
 }
 
-// Gets an EC_KEY object from the given public and private keys. This function
+// Gets an *EC_KEY object from the given public and private keys. This function
 // was created because code for this was getting repeated in other functions.
 func getEC_KEY(curve Curve, pubkey *PublicKey, privkey *PrivateKey) (*C.EC_KEY,
 	error) {
