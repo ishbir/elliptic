@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"runtime"
 	"unsafe"
 )
@@ -63,13 +62,15 @@ const (
 	Sect571r1 Curve = C.NID_sect571r1
 )
 
-// Public key which can be used for verifying signatures etc.
+// PublicKey represents a public key which can be used for signature
+// verification, encryption etc.
 type PublicKey struct {
 	Curve
 	X, Y []byte
 }
 
-// Re-create a PublicKey object from the binary format that it was stored in.
+// PublicKeyFromBytes re-creates a PublicKey object from the binary format that
+// it was stored in.
 func PublicKeyFromBytes(raw []byte) (*PublicKey, error) {
 	key := new(PublicKey)
 	var curve, xLen, yLen int16
@@ -103,7 +104,7 @@ func PublicKeyFromBytes(raw []byte) (*PublicKey, error) {
 		return nil, errors.New("couldn't read Y")
 	}
 
-	err = check_keys(key.Curve, key, nil)
+	err = checkKey(key.Curve, key, nil)
 	if err != nil {
 		return nil, errors.New("key check failed: " + err.Error())
 	}
@@ -111,8 +112,8 @@ func PublicKeyFromBytes(raw []byte) (*PublicKey, error) {
 	return key, nil
 }
 
-// Serialize the public key into a binary format useful for network transfer or
-// storage.
+// Serialize serializes the public key into a binary format useful for network
+// transfer or storage.
 func (key *PublicKey) Serialize() []byte {
 	var curve, xLen, yLen int16
 	curve = int16(key.Curve)
@@ -136,7 +137,7 @@ func getEC_KEY(curve Curve, pubkey *PublicKey, privkey *PrivateKey) (*C.EC_KEY,
 	// initialization
 	key := C.EC_KEY_new_by_curve_name(C.int(curve))
 	if key == nil {
-		return nil, errors.New("[OpenSSL] EC_KEY_new_by_curve_name FAIL")
+		return nil, OpenSSLError{"EC_KEY_new_by_curve_name"}
 	}
 	// instruct garbage collector to free EC_KEY
 	runtime.SetFinalizer(key, func(k *C.EC_KEY) {
@@ -158,7 +159,7 @@ func getEC_KEY(curve Curve, pubkey *PublicKey, privkey *PrivateKey) (*C.EC_KEY,
 		defer C.BN_free(priv_key)
 
 		if C.EC_KEY_set_private_key(key, priv_key) == C.int(0) {
-			return nil, errors.New("[OpenSSL] EC_KEY_set_private_key FAIL")
+			return nil, OpenSSLError{"EC_KEY_set_private_key"}
 		}
 	}
 
@@ -169,14 +170,14 @@ func getEC_KEY(curve Curve, pubkey *PublicKey, privkey *PrivateKey) (*C.EC_KEY,
 	// set coordinates to get pubkey and then set pubkey
 	if C.EC_POINT_set_affine_coordinates_GFp(group, pub_key, pub_key_x,
 		pub_key_y, nil) == C.int(0) {
-		return nil, errors.New("[OpenSSL] EC_POINT_set_affine_coordinates_GFp FAIL")
+		return nil, OpenSSLError{"EC_POINT_set_affine_coordinates_GFp"}
 	}
 	if C.EC_KEY_set_public_key(key, pub_key) == C.int(0) {
-		return nil, errors.New("[OpenSSL] EC_KEY_set_public_key FAIL")
+		return nil, OpenSSLError{"EC_KEY_set_public_key"}
 	}
 	// validate the key
 	if C.EC_KEY_check_key(key) == C.int(0) {
-		return nil, errors.New("[OpenSSL] EC_KEY_check_key FAIL")
+		return nil, OpenSSLError{"EC_KEY_check_key"}
 	}
 
 	return key, nil
@@ -185,18 +186,20 @@ func getEC_KEY(curve Curve, pubkey *PublicKey, privkey *PrivateKey) (*C.EC_KEY,
 // Check whether the public and private keys are valid for the given curve
 // and whether the private key belongs to the given public key (if privkey is
 // not nil). No error means that the check was successful.
-func check_keys(curve Curve, pubkey *PublicKey, privkey *PrivateKey) error {
+func checkKey(curve Curve, pubkey *PublicKey, privkey *PrivateKey) error {
 	_, err := getEC_KEY(curve, pubkey, privkey)
 	return err
 }
 
-// Private key which can be used for signing, encryption, decryption etc.
+// PrivateKey represents a private key which can be used for signing,
+// encryption, decryption etc.
 type PrivateKey struct {
 	PublicKey
 	Key []byte
 }
 
-// Re-create the private key from the binary format that it was stored in.
+// PrivateKeyFromBytes re-creates the private key from the binary format that it
+// was stored in.
 func PrivateKeyFromBytes(raw []byte) (*PrivateKey, error) {
 	key := new(PrivateKey)
 	var curve, keyLen int16
@@ -224,7 +227,7 @@ func PrivateKeyFromBytes(raw []byte) (*PrivateKey, error) {
 		return nil, errors.New("failed to derive public key: " + err.Error())
 	}
 
-	err = check_keys(key.Curve, &key.PublicKey, key)
+	err = checkKey(key.Curve, &key.PublicKey, key)
 	if err != nil {
 		return nil, errors.New("key check failed: " + err.Error())
 	}
@@ -239,7 +242,7 @@ func (key *PrivateKey) derivePublicKey() error {
 	k := C.EC_KEY_new_by_curve_name(C.int(key.Curve))
 	defer C.EC_KEY_free(k)
 	if key == nil {
-		return errors.New("[OpenSSL] EC_KEY_new_by_curve_name FAIL")
+		return OpenSSLError{"EC_KEY_new_by_curve_name"}
 	}
 
 	group := C.EC_KEY_get0_group(k)
@@ -257,19 +260,19 @@ func (key *PrivateKey) derivePublicKey() error {
 
 	// the actual step which does the conversion from private to public key
 	if C.EC_POINT_mul(group, pub_key, priv_key, nil, nil, nil) == C.int(0) {
-		return errors.New("[OpenSSL] EC_POINT_mul FAIL")
+		return OpenSSLError{"EC_POINT_mul"}
 	}
 	if C.EC_KEY_set_private_key(k, priv_key) == C.int(0) {
-		return errors.New("[OpenSSL] EC_KEY_set_private_key FAIL")
+		return OpenSSLError{"EC_KEY_set_private_key"}
 	}
 	if C.EC_KEY_set_public_key(k, pub_key) == C.int(0) {
-		return errors.New("[OpenSSL] EC_KEY_set_public_key FAIL")
+		return OpenSSLError{"EC_KEY_set_public_key"}
 	}
 
 	// get X and Y coords from pub_key
 	if C.EC_POINT_get_affine_coordinates_GFp(group, pub_key, pub_key_x,
 		pub_key_y, nil) == C.int(0) {
-		return errors.New("[OpenSSL] EC_POINT_get_affine_coordinates_GFp FAIL")
+		return OpenSSLError{"EC_POINT_get_affine_coordinates_GFp"}
 	}
 
 	key.PublicKey.X = make([]byte, C.BN_num_bytes_not_a_macro(pub_key_x))
@@ -280,19 +283,19 @@ func (key *PrivateKey) derivePublicKey() error {
 	return nil
 }
 
-// Generate a random private key for the given curve.
+// GeneratePrivateKey generates a random private key for the given curve.
 func GeneratePrivateKey(curve Curve) (*PrivateKey, error) {
 	// initialization
 	key := C.EC_KEY_new_by_curve_name(C.int(curve))
 	defer C.EC_KEY_free(key)
 	if key == nil {
-		return nil, errors.New("[OpenSSL] EC_KEY_new_by_curve_name FAIL")
+		return nil, OpenSSLError{"EC_KEY_new_by_curve_name"}
 	}
 	if C.EC_KEY_generate_key(key) == C.int(0) {
-		return nil, errors.New("[OpenSSL] EC_KEY_generate_key FAIL")
+		return nil, OpenSSLError{"EC_KEY_generate_key"}
 	}
 	if C.EC_KEY_check_key(key) == C.int(0) {
-		return nil, errors.New("[OpenSSL] EC_KEY_check_key FAIL")
+		return nil, OpenSSLError{"EC_KEY_check_key"}
 	}
 
 	priv_key := C.EC_KEY_get0_private_key(key)
@@ -308,8 +311,7 @@ func GeneratePrivateKey(curve Curve) (*PrivateKey, error) {
 	// get X and Y coords from pub_key
 	if C.EC_POINT_get_affine_coordinates_GFp(group, pub_key, pub_key_x,
 		pub_key_y, nil) == C.int(0) {
-		return nil, errors.New(
-			"[OpenSSL] EC_POINT_get_affine_coordinates_GFp FAIL")
+		return nil, OpenSSLError{"EC_POINT_get_affine_coordinates_GFp"}
 	}
 
 	// start transfering data back to Go
@@ -324,7 +326,7 @@ func GeneratePrivateKey(curve Curve) (*PrivateKey, error) {
 	C.BN_bn2bin(pub_key_y, (*C.uchar)(unsafe.Pointer(&privateKey.PublicKey.Y[0])))
 
 	// do a sanity check to ensure that everything went as planned
-	err := check_keys(privateKey.Curve, &privateKey.PublicKey, privateKey)
+	err := checkKey(privateKey.Curve, &privateKey.PublicKey, privateKey)
 	if err != nil {
 		return nil, errors.New("key check failed: " + err.Error())
 	}
@@ -332,8 +334,8 @@ func GeneratePrivateKey(curve Curve) (*PrivateKey, error) {
 	return privateKey, nil
 }
 
-// Serialize the private key into a binary format useful for network transfer or
-// storage.
+// Serialize serializes the private key into a binary format useful for network
+// transfer or storage.
 func (key *PrivateKey) Serialize() []byte {
 	var curve, keyLen int16
 	curve = int16(key.Curve)
@@ -347,42 +349,40 @@ func (key *PrivateKey) Serialize() []byte {
 	return b.Bytes()
 }
 
-// Generate the raw ECDH key which must be passed through an appropriate hashing
-// function before being used for encryption/decryption. length was fixed at 32
-// in pyelliptic. The maximum length of the shared key is dependent on the curve
-// used.
-func (privKey *PrivateKey) GetRawECDHKey(pubKey PublicKey, length int) ([]byte,
+// GetRawECDHKey generates the raw ECDH key which must be passed through an
+// appropriate hashing function before being used for encryption/decryption.
+// The maximum length of the shared key is dependent on the curve used.
+func (key *PrivateKey) GetRawECDHKey(pubKey PublicKey, length int) ([]byte,
 	error) {
-	if pubKey.Curve != privKey.Curve {
+	if pubKey.Curve != key.Curve {
 		return nil, errors.New("ECC keys must be from the same curve")
 	}
 
-	other_key, err := getEC_KEY(pubKey.Curve, &pubKey, nil)
+	otherKey, err := getEC_KEY(pubKey.Curve, &pubKey, nil)
 	if err != nil {
 		return nil, errors.New("creating other EC_KEY failed: " + err.Error())
 	}
-	own_key, err := getEC_KEY(privKey.Curve, &privKey.PublicKey, privKey)
+	ownKey, err := getEC_KEY(key.Curve, &key.PublicKey, key)
 	if err != nil {
 		return nil, errors.New("creating own EC_KEY failed: " + err.Error())
 	}
 
-	C.ECDH_set_method(own_key, C.ECDH_OpenSSL())
+	C.ECDH_set_method(ownKey, C.ECDH_OpenSSL())
 
 	// compute the shared secret of the specified length
 	ecdhKey := make([]byte, length)
-	ecdh_keylen := int(C.ECDH_compute_key(unsafe.Pointer(&ecdhKey[0]),
-		C.size_t(length), C.EC_KEY_get0_public_key(other_key), own_key, nil))
+	ecdhKeylen := int(C.ECDH_compute_key(unsafe.Pointer(&ecdhKey[0]),
+		C.size_t(length), C.EC_KEY_get0_public_key(otherKey), ownKey, nil))
 
 	// check if we got the length we needed
-	if ecdh_keylen != length {
-		return nil, errors.New(fmt.Sprintf("[OpenSSL] ECDH keylen FAIL, got"+
-			" %d expected %d ", ecdh_keylen, length))
+	if ecdhKeylen != length {
+		return nil, OpenSSLError{"ECDH_compute_key"}
 	}
 
 	return ecdhKey, nil
 }
 
-// Sign the given data with the private key and return the signature.
+// Sign signs the given data with the private key and return the signature.
 func (key *PrivateKey) Sign(rawData []byte) ([]byte, error) {
 	k, err := getEC_KEY(key.Curve, &key.PublicKey, key)
 	if err != nil {
@@ -395,35 +395,34 @@ func (key *PrivateKey) Sign(rawData []byte) ([]byte, error) {
 
 	C.EVP_MD_CTX_init(md_ctx)
 	if C.EVP_DigestInit(md_ctx, C.EVP_ecdsa()) == C.int(0) {
-		return nil, errors.New("[OpenSSL] EVP_DigestInit FAIL")
+		return nil, OpenSSLError{"EVP_DigestInit"}
 	}
 	if C.EVP_DigestUpdate(md_ctx, unsafe.Pointer(&rawData[0]),
 		C.size_t(len(rawData))) == C.int(0) {
-		return nil, errors.New("[OpenSSL] EVP_DigestUpdate FAIL")
+		return nil, OpenSSLError{"EVP_DigestUpdate"}
 	}
 	digest := make([]byte, C.EVP_MAX_MD_SIZE)
 	var digest_len uint
 	// get the digest
 	if C.EVP_DigestFinal(md_ctx, (*C.uchar)(unsafe.Pointer(&digest[0])),
 		(*C.uint)(unsafe.Pointer(&digest_len))) == C.int(0) {
-		return nil, errors.New("[OpenSSL] EVP_DigestFinal FAIL")
+		return nil, OpenSSLError{"EVP_DigestFinal"}
 	}
 
-	sig_maxlen := C.ECDSA_size(k)
-	sig := make([]byte, sig_maxlen)
+	sig := make([]byte, C.ECDSA_size(k)) // get max signature length
 	var sig_len uint
 	// get the signature
 	if C.ECDSA_sign(C.int(0), (*C.uchar)(unsafe.Pointer(&digest[0])),
 		C.int(digest_len), (*C.uchar)(unsafe.Pointer(&sig[0])),
 		(*C.uint)(unsafe.Pointer(&sig_len)), k) == C.int(0) {
-		return nil, errors.New("[OpenSSL] ECDSA_sign FAIL")
+		return nil, OpenSSLError{"ECDSA_sign"}
 	}
 
 	return sig[:sig_len], nil
 }
 
-// Verify the signature for the given data and public key and return if it is
-// valid or not.
+// VerifySignature verifies the signature for the given data and public key and
+// return if it is valid or not.
 func (key *PublicKey) VerifySignature(sig, rawData []byte) (bool, error) {
 	k, err := getEC_KEY(key.Curve, key, nil)
 	if err != nil {
@@ -436,18 +435,18 @@ func (key *PublicKey) VerifySignature(sig, rawData []byte) (bool, error) {
 
 	C.EVP_MD_CTX_init(md_ctx)
 	if C.EVP_DigestInit(md_ctx, C.EVP_ecdsa()) == C.int(0) {
-		return false, errors.New("[OpenSSL] EVP_DigestInit FAIL")
+		return false, OpenSSLError{"EVP_DigestInit"}
 	}
 	if C.EVP_DigestUpdate(md_ctx, unsafe.Pointer(&rawData[0]),
 		C.size_t(len(rawData))) == C.int(0) {
-		return false, errors.New("[OpenSSL] EVP_DigestUpdate FAIL")
+		return false, OpenSSLError{"EVP_DigestUpdate"}
 	}
 	digest := make([]byte, C.EVP_MAX_MD_SIZE)
 	var digest_len uint
 	// get the digest
 	if C.EVP_DigestFinal(md_ctx, (*C.uchar)(unsafe.Pointer(&digest[0])),
 		(*C.uint)(unsafe.Pointer(&digest_len))) == C.int(0) {
-		return false, errors.New("[OpenSSL] EVP_DigestFinal FAIL")
+		return false, OpenSSLError{"EVP_DigestFinal"}
 	}
 
 	// check signature
@@ -457,7 +456,7 @@ func (key *PublicKey) VerifySignature(sig, rawData []byte) (bool, error) {
 
 	switch ret {
 	case -1:
-		return false, errors.New("[OpenSSL] ECDSA_verify FAIL")
+		return false, OpenSSLError{"ECDSA_verify"}
 	case 1:
 		return true, nil
 	case 0:

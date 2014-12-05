@@ -86,3 +86,59 @@ func TestGetRawECDHKey(t *testing.T) {
 		t.Fatal("generated shared keys not the same!")
 	}
 }
+
+func TestSignatures(t *testing.T) {
+	key, err := GeneratePrivateKey(Secp521r1)
+	if err != nil {
+		t.Fatal("private key generation failed:", err)
+	}
+	msg := "My message to humanity: Change your ways, or you'll die."
+	signature, err := key.Sign([]byte(msg))
+	if err != nil {
+		t.Fatal("signing failed:", err)
+	}
+	res, err := key.PublicKey.VerifySignature(signature, []byte(msg))
+	if err != nil {
+		t.Fatal("signature verification failed:", err)
+	}
+	if res != true {
+		t.Error("verification didn't return true")
+	}
+
+	// test failure cases
+	// case 1: different key, same curve
+	failkey1, err := GeneratePrivateKey(Secp521r1)
+	if err != nil {
+		t.Fatal("private key generation failed:", err)
+	}
+	res, err = failkey1.PublicKey.VerifySignature(signature, []byte(msg))
+	if err != nil {
+		t.Fatal("signature verification failed:", err)
+	}
+	if res != false {
+		t.Error("verification didn't return false")
+	}
+
+	// case 2: different key, different curve
+	failkey2, err := GeneratePrivateKey(Secp160r2)
+	if err != nil {
+		t.Fatal("private key generation failed:", err)
+	}
+	res, err = failkey2.PublicKey.VerifySignature(signature, []byte(msg))
+	if err != nil {
+		t.Fatal("signature verification failed:", err)
+	}
+	if res != false {
+		t.Error("verification didn't return false")
+	}
+
+	// case 3: same key, same curve, different message
+	res, err = key.PublicKey.VerifySignature(signature, []byte("fur teh lulz!"))
+	if err != nil {
+		t.Fatal("signature verification failed:", err)
+	}
+	if res != false {
+		t.Error("verification didn't return false")
+	}
+
+}
