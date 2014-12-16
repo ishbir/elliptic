@@ -1,40 +1,40 @@
 package elliptic
 
-// +build cgo
+/*
+#include <openssl/evp.h>
 
-// #include <openssl/evp.h>
-//
-// int EVP_CIPHER_block_size_not_a_macro(EVP_CIPHER *c) {
-//     return EVP_CIPHER_block_size(c);
-// }
-//
-// int EVP_CIPHER_key_length_not_a_macro(EVP_CIPHER *c) {
-//     return EVP_CIPHER_key_length(c);
-// }
-//
-// int EVP_CIPHER_iv_length_not_a_macro(EVP_CIPHER *c) {
-//     return EVP_CIPHER_iv_length(c);
-// }
-//
-// int EVP_CIPHER_nid_not_a_macro(EVP_CIPHER *c) {
-//     return EVP_CIPHER_nid(c);
-// }
-//
-// int EVP_CIPHER_CTX_block_size_not_a_macro(EVP_CIPHER_CTX *ctx) {
-//     return EVP_CIPHER_CTX_block_size(ctx);
-// }
-//
-// int EVP_CIPHER_CTX_key_length_not_a_macro(EVP_CIPHER_CTX *ctx) {
-//     return EVP_CIPHER_CTX_key_length(ctx);
-// }
-//
-// int EVP_CIPHER_CTX_iv_length_not_a_macro(EVP_CIPHER_CTX *ctx) {
-//     return EVP_CIPHER_CTX_iv_length(ctx);
-// }
-//
-// const EVP_CIPHER *EVP_CIPHER_CTX_cipher_not_a_macro(EVP_CIPHER_CTX *ctx) {
-//     return EVP_CIPHER_CTX_cipher(ctx);
-// }
+static int EVP_CIPHER_block_size_not_a_macro(EVP_CIPHER *c) {
+    return EVP_CIPHER_block_size(c);
+}
+
+static int EVP_CIPHER_key_length_not_a_macro(EVP_CIPHER *c) {
+    return EVP_CIPHER_key_length(c);
+}
+
+static int EVP_CIPHER_iv_length_not_a_macro(EVP_CIPHER *c) {
+    return EVP_CIPHER_iv_length(c);
+}
+
+static int EVP_CIPHER_nid_not_a_macro(EVP_CIPHER *c) {
+    return EVP_CIPHER_nid(c);
+}
+
+static int EVP_CIPHER_CTX_block_size_not_a_macro(EVP_CIPHER_CTX *ctx) {
+    return EVP_CIPHER_CTX_block_size(ctx);
+}
+
+static int EVP_CIPHER_CTX_key_length_not_a_macro(EVP_CIPHER_CTX *ctx) {
+    return EVP_CIPHER_CTX_key_length(ctx);
+}
+
+static int EVP_CIPHER_CTX_iv_length_not_a_macro(EVP_CIPHER_CTX *ctx) {
+    return EVP_CIPHER_CTX_iv_length(ctx);
+}
+
+static const EVP_CIPHER *EVP_CIPHER_CTX_cipher_not_a_macro(EVP_CIPHER_CTX *ctx) {
+    return EVP_CIPHER_CTX_cipher(ctx);
+}
+*/
 import "C"
 
 import (

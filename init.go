@@ -1,7 +1,5 @@
 package elliptic
 
-// +build cgo
-
 /*
 #include <openssl/ssl.h>
 #include <openssl/conf.h>
@@ -31,7 +29,6 @@ static void OpenSSL_add_all_algorithms_not_a_macro() {
 import "C"
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 )
@@ -47,6 +44,7 @@ func init() {
 	}
 }
 
+// Cleanup cleans the memory reserved for OpenSSL strings, digests and ciphers.
 func Cleanup() {
 	// Removes all digests and ciphers
 	C.EVP_cleanup()
@@ -73,5 +71,5 @@ func errorFromErrorQueue() error {
 			C.GoString(C.ERR_func_error_string(err)),
 			C.GoString(C.ERR_reason_error_string(err))))
 	}
-	return errors.New(fmt.Sprintf("OpenSSL errors: %s", strings.Join(errs, "\n")))
+	return fmt.Errorf("OpenSSL errors: %s", strings.Join(errs, "\n"))
 }

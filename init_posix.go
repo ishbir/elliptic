@@ -1,7 +1,7 @@
-package elliptic
-
 // +build linux darwin cgo
 // +build !windows
+
+package elliptic
 
 /*
 #include <errno.h>

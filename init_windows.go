@@ -1,6 +1,6 @@
-package elliptic
-
 // +build windows cgo
+
+package elliptic
 
 /*
 

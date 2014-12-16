@@ -1,11 +1,14 @@
 package elliptic
 
-// build +cgo
-
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/binary"
 	"errors"
+	"io"
 	"runtime"
 	"unsafe"
 )
@@ -72,9 +75,13 @@ type PublicKey struct {
 // PublicKeyFromBytes re-creates a PublicKey object from the binary format that
 // it was stored in.
 func PublicKeyFromBytes(raw []byte) (*PublicKey, error) {
+	b := bytes.NewReader(raw)
+	return publicKeyFromBytesReader(b)
+}
+
+func publicKeyFromBytesReader(b io.Reader) (*PublicKey, error) {
 	key := new(PublicKey)
 	var curve, xLen, yLen int16
-	b := bytes.NewReader(raw)
 
 	err := binary.Read(b, binary.BigEndian, &curve)
 	if err != nil {
@@ -463,4 +470,96 @@ func (key *PublicKey) VerifySignature(sig, rawData []byte) (bool, error) {
 		return false, nil
 	}
 	return false, errors.New("lolwut? unknown error")
+}
+
+// Encrypt encrypts data for the target public key. This is meant to be used
+// with a randomly generated private key (the pubkey of which is also in the
+// output byte slice).
+func (key *PrivateKey) Encrypt(pubkey PublicKey, data []byte, cipher *Cipher) (
+	[]byte, error) {
+	// fixed at 32 for compatibility with pyelliptic
+	ecdhKey, err := key.GetRawECDHKey(pubkey, 32)
+	if err != nil {
+		return nil, errors.New("failed to get ECDH key: " + err.Error())
+	}
+	derivedKey := sha512.Sum512(ecdhKey)
+	key_e := derivedKey[:32]
+	key_m := derivedKey[32:]
+	iv := make([]byte, cipher.IVSize())
+	_, err = rand.Read(iv)
+	if err != nil {
+		return nil, errors.New("failed to get random bytes: " + err.Error())
+	}
+	ctx, err := NewEncryptionCipherCtx(cipher, key_e, iv)
+	if err != nil {
+		return nil, errors.New("failed to create cipher ctx: " + err.Error())
+	}
+	encData, err := ctx.Encrypt(data)
+	if err != nil {
+		return nil, errors.New("failed to encrypt data: " + err.Error())
+	}
+
+	var b bytes.Buffer
+	b.Write(iv)
+	b.Write(pubkey.Serialize())
+	b.Write(encData)
+
+	hm := hmac.New(sha256.New, key_m)
+	hm.Write(b.Bytes())
+	mac := hm.Sum(nil)
+
+	b.Write(mac)
+
+	return b.Bytes(), nil
+}
+
+// Decrypt decrypts data that was encrypted using the Encrypt function.
+func (key *PrivateKey) Decrypt(raw []byte, cipher *Cipher) ([]byte, error) {
+	b := bytes.NewReader(raw)
+	iv := make([]byte, cipher.IVSize())
+	_, err := b.Read(iv)
+	if err != nil {
+		return nil, errors.New("failed to read iv")
+	}
+	pubkey, err := publicKeyFromBytesReader(b)
+	if err != nil {
+		return nil, errors.New("failed to read public key: " + err.Error())
+	}
+	ciphertext := make([]byte, b.Len()-32)
+	_, err = b.Read(ciphertext)
+	if err != nil {
+		return nil, errors.New("failed to read ciphertext")
+	}
+	messageMAC := make([]byte, 32)
+	_, err = b.Read(ciphertext)
+	if err != nil {
+		return nil, errors.New("failed to read mac")
+	}
+
+	// fixed at 32 for compatibility with pyelliptic
+	ecdhKey, err := key.GetRawECDHKey(*pubkey, 32)
+	if err != nil {
+		return nil, errors.New("failed to get ECDH key: " + err.Error())
+	}
+	derivedKey := sha512.Sum512(ecdhKey)
+	key_e := derivedKey[:32]
+	key_m := derivedKey[32:]
+
+	hm := hmac.New(sha256.New, key_m)
+	hm.Write(raw[:len(raw)-32])
+	expectedMAC := hm.Sum(nil)
+	if !hmac.Equal(expectedMAC, messageMAC) {
+		return nil, errors.New("invalid mac address")
+	}
+
+	ctx, err := newDecryptionCipherCtx(cipher, key_e, iv)
+	if err != nil {
+		return nil, errors.New("failed to create cipher ctx: " + err.Error())
+	}
+	data, err := ctx.Decrypt(ciphertext)
+	if err != nil {
+		return nil, errors.New("failed to decrypt data: " + err.Error())
+	}
+
+	return data, nil
 }
