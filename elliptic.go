@@ -485,7 +485,7 @@ func (key *PrivateKey) Encrypt(pubkey PublicKey, data []byte) (
 
 	cipher, err := GetCipherByName("aes-256-cbc")
 	if err != nil {
-		return nil, errors.New("failed to get cipher:" + err.Error())
+		return nil, errors.New("failed to get cipher: " + err.Error())
 	}
 
 	derivedKey := sha512.Sum512(ecdhKey)
@@ -526,7 +526,7 @@ func (key *PrivateKey) Encrypt(pubkey PublicKey, data []byte) (
 func (key *PrivateKey) Decrypt(raw []byte) ([]byte, error) {
 	cipher, err := GetCipherByName("aes-256-cbc")
 	if err != nil {
-		return nil, errors.New("failed to get cipher:" + err.Error())
+		return nil, errors.New("failed to get cipher: " + err.Error())
 	}
 
 	b := bytes.NewReader(raw)

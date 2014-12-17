@@ -153,7 +153,7 @@ func TestEncryption(t *testing.T) {
 		t.Fatal("failed to generate private key 2")
 	}
 
-	data := []byte("Hey there dude. How are you doing?")
+	data := []byte("Hey there dude. How are you doing? This is a test.")
 
 	encData, err := key.Encrypt(privKey.PublicKey, data)
 	if err != nil {

@@ -90,7 +90,7 @@ func GetCipherByName(name string) (*Cipher, error) {
 	defer C.free(unsafe.Pointer(cname))
 	p := C.EVP_get_cipherbyname(cname)
 	if p == nil {
-		return nil, fmt.Errorf("Cipher %v not found", name)
+		return nil, fmt.Errorf("cipher %v not found", name)
 	}
 	// we can consider ciphers to use static mem; don't need to free
 	return &Cipher{ptr: p}, nil
