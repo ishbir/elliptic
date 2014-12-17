@@ -474,7 +474,19 @@ func (key *PublicKey) VerifySignature(sig, rawData []byte) (bool, error) {
 
 // Encrypt encrypts data for the target public key using AES-256-CBC. This is
 // meant to be used with a randomly generated private key (the pubkey of which
-// is also in the output byte slice).
+// is also in the output byte slice). The structure that it encodes everything
+// into is:
+//
+//	struct {
+//		// Initialization Vector used for AES-256-CBC
+//		IV [16]byte
+//		// Serialized Public Key
+//		PublicKey []byte
+//		// Cipher text
+//		Data []byte
+//		// HMACSHA256 Message Authentication Code
+//		HMAC [32]byte
+//	}
 func (key *PrivateKey) Encrypt(pubkey PublicKey, data []byte) (
 	[]byte, error) {
 	// fixed at 32 for compatibility with pyelliptic

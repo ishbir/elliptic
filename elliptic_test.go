@@ -169,3 +169,7 @@ func TestEncryption(t *testing.T) {
 		t.Fatal("decrypted data doesn't match original")
 	}
 }
+
+func TestPyellipticCompatibility(t *testing.T) {
+
+}
