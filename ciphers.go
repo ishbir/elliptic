@@ -120,7 +120,7 @@ func newCipherCtx() (*cipherCtx, error) {
 	return ctx, nil
 }
 
-func (ctx *cipherCtx) applyKeyAndIV(key, iv []byte) error {
+func (ctx *cipherCtx) applyKeyAndIV(key, iv []byte, do int) error {
 	var kptr, iptr *C.uchar
 	if key != nil {
 		if len(key) != ctx.KeySize() {
@@ -137,7 +137,13 @@ func (ctx *cipherCtx) applyKeyAndIV(key, iv []byte) error {
 		iptr = (*C.uchar)(&iv[0])
 	}
 	if kptr != nil || iptr != nil {
-		if 1 != C.EVP_EncryptInit_ex(ctx.ctx, nil, nil, kptr, iptr) {
+		var ret C.int
+		if do == 1 {
+			ret = C.EVP_EncryptInit_ex(ctx.ctx, nil, nil, kptr, iptr)
+		} else {
+			ret = C.EVP_DecryptInit_ex(ctx.ctx, nil, nil, kptr, iptr)
+		}
+		if 1 != ret {
 			return errors.New("failed to apply key/IV")
 		}
 	}
@@ -213,7 +219,7 @@ func newEncryptionCipherCtx(c *Cipher, key, iv []byte) (
 	if 1 != C.EVP_EncryptInit_ex(ctx.ctx, c.ptr, nil, nil, nil) {
 		return nil, errors.New("failed to initialize cipher context")
 	}
-	err = ctx.applyKeyAndIV(key, iv)
+	err = ctx.applyKeyAndIV(key, iv, 1)
 	if err != nil {
 		return nil, err
 	}
@@ -232,7 +238,7 @@ func newDecryptionCipherCtx(c *Cipher, key, iv []byte) (
 	if 1 != C.EVP_DecryptInit_ex(ctx.ctx, c.ptr, nil, nil, nil) {
 		return nil, errors.New("failed to initialize cipher context")
 	}
-	err = ctx.applyKeyAndIV(key, iv)
+	err = ctx.applyKeyAndIV(key, iv, 0)
 	if err != nil {
 		return nil, err
 	}

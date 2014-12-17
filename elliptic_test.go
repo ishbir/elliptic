@@ -142,3 +142,30 @@ func TestSignatures(t *testing.T) {
 	}
 
 }
+
+func TestEncryption(t *testing.T) {
+	privKey, err := GeneratePrivateKey(Secp256k1)
+	if err != nil {
+		t.Fatal("failed to generate private key 1")
+	}
+	key, err := GeneratePrivateKey(Secp256k1)
+	if err != nil {
+		t.Fatal("failed to generate private key 2")
+	}
+
+	data := []byte("Hey there dude. How are you doing?")
+
+	encData, err := key.Encrypt(privKey.PublicKey, data)
+	if err != nil {
+		t.Fatal("failed to encrypt:", err)
+	}
+
+	decData, err := privKey.Decrypt(encData)
+	if err != nil {
+		t.Fatal("failed to decrypt:", err)
+	}
+
+	if !reflect.DeepEqual(data, decData) {
+		t.Fatal("decrypted data doesn't match original")
+	}
+}

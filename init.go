@@ -71,5 +71,5 @@ func errorFromErrorQueue() error {
 			C.GoString(C.ERR_func_error_string(err)),
 			C.GoString(C.ERR_reason_error_string(err))))
 	}
-	return fmt.Errorf("OpenSSL errors: %s", strings.Join(errs, "\n"))
+	return fmt.Errorf(strings.Join(errs, "\n"))
 }

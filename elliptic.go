@@ -9,7 +9,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
-	"runtime"
 	"unsafe"
 )
 
@@ -146,10 +145,6 @@ func getEC_KEY(curve Curve, pubkey *PublicKey, privkey *PrivateKey) (*C.EC_KEY,
 	if key == nil {
 		return nil, OpenSSLError{"EC_KEY_new_by_curve_name"}
 	}
-	// instruct garbage collector to free EC_KEY
-	runtime.SetFinalizer(key, func(k *C.EC_KEY) {
-		C.EC_KEY_free(k)
-	})
 
 	// convert bytes to BIGNUMs
 	pub_key_x := C.BN_bin2bn((*C.uchar)(unsafe.Pointer(&pubkey.X[0])),
@@ -194,7 +189,8 @@ func getEC_KEY(curve Curve, pubkey *PublicKey, privkey *PrivateKey) (*C.EC_KEY,
 // and whether the private key belongs to the given public key (if privkey is
 // not nil). No error means that the check was successful.
 func checkKey(curve Curve, pubkey *PublicKey, privkey *PrivateKey) error {
-	_, err := getEC_KEY(curve, pubkey, privkey)
+	k, err := getEC_KEY(curve, pubkey, privkey)
+	defer C.EC_KEY_free(k)
 	return err
 }
 
@@ -366,10 +362,12 @@ func (key *PrivateKey) GetRawECDHKey(pubKey PublicKey, length int) ([]byte,
 	}
 
 	otherKey, err := getEC_KEY(pubKey.Curve, &pubKey, nil)
+	defer C.EC_KEY_free(otherKey)
 	if err != nil {
 		return nil, errors.New("creating other EC_KEY failed: " + err.Error())
 	}
 	ownKey, err := getEC_KEY(key.Curve, &key.PublicKey, key)
+	defer C.EC_KEY_free(ownKey)
 	if err != nil {
 		return nil, errors.New("creating own EC_KEY failed: " + err.Error())
 	}
@@ -392,6 +390,7 @@ func (key *PrivateKey) GetRawECDHKey(pubKey PublicKey, length int) ([]byte,
 // Sign signs the given data with the private key and return the signature.
 func (key *PrivateKey) Sign(rawData []byte) ([]byte, error) {
 	k, err := getEC_KEY(key.Curve, &key.PublicKey, key)
+	defer C.EC_KEY_free(k)
 	if err != nil {
 		return nil, err
 	}
@@ -432,6 +431,7 @@ func (key *PrivateKey) Sign(rawData []byte) ([]byte, error) {
 // return if it is valid or not.
 func (key *PublicKey) VerifySignature(sig, rawData []byte) (bool, error) {
 	k, err := getEC_KEY(key.Curve, key, nil)
+	defer C.EC_KEY_free(k)
 	if err != nil {
 		return false, err
 	}
@@ -472,36 +472,45 @@ func (key *PublicKey) VerifySignature(sig, rawData []byte) (bool, error) {
 	return false, errors.New("lolwut? unknown error")
 }
 
-// Encrypt encrypts data for the target public key. This is meant to be used
-// with a randomly generated private key (the pubkey of which is also in the
-// output byte slice).
-func (key *PrivateKey) Encrypt(pubkey PublicKey, data []byte, cipher *Cipher) (
+// Encrypt encrypts data for the target public key using AES-256-CBC. This is
+// meant to be used with a randomly generated private key (the pubkey of which
+// is also in the output byte slice).
+func (key *PrivateKey) Encrypt(pubkey PublicKey, data []byte) (
 	[]byte, error) {
 	// fixed at 32 for compatibility with pyelliptic
 	ecdhKey, err := key.GetRawECDHKey(pubkey, 32)
 	if err != nil {
 		return nil, errors.New("failed to get ECDH key: " + err.Error())
 	}
+
+	cipher, err := GetCipherByName("aes-256-cbc")
+	if err != nil {
+		return nil, errors.New("failed to get cipher:" + err.Error())
+	}
+
 	derivedKey := sha512.Sum512(ecdhKey)
 	key_e := derivedKey[:32]
 	key_m := derivedKey[32:]
+
 	iv := make([]byte, cipher.IVSize())
 	_, err = rand.Read(iv)
 	if err != nil {
 		return nil, errors.New("failed to get random bytes: " + err.Error())
 	}
+
 	ctx, err := NewEncryptionCipherCtx(cipher, key_e, iv)
 	if err != nil {
 		return nil, errors.New("failed to create cipher ctx: " + err.Error())
 	}
+
 	encData, err := ctx.Encrypt(data)
 	if err != nil {
-		return nil, errors.New("failed to encrypt data: " + err.Error())
+		return nil, err
 	}
 
 	var b bytes.Buffer
 	b.Write(iv)
-	b.Write(pubkey.Serialize())
+	b.Write(key.PublicKey.Serialize())
 	b.Write(encData)
 
 	hm := hmac.New(sha256.New, key_m)
@@ -514,10 +523,15 @@ func (key *PrivateKey) Encrypt(pubkey PublicKey, data []byte, cipher *Cipher) (
 }
 
 // Decrypt decrypts data that was encrypted using the Encrypt function.
-func (key *PrivateKey) Decrypt(raw []byte, cipher *Cipher) ([]byte, error) {
+func (key *PrivateKey) Decrypt(raw []byte) ([]byte, error) {
+	cipher, err := GetCipherByName("aes-256-cbc")
+	if err != nil {
+		return nil, errors.New("failed to get cipher:" + err.Error())
+	}
+
 	b := bytes.NewReader(raw)
 	iv := make([]byte, cipher.IVSize())
-	_, err := b.Read(iv)
+	_, err = b.Read(iv)
 	if err != nil {
 		return nil, errors.New("failed to read iv")
 	}
@@ -525,13 +539,14 @@ func (key *PrivateKey) Decrypt(raw []byte, cipher *Cipher) ([]byte, error) {
 	if err != nil {
 		return nil, errors.New("failed to read public key: " + err.Error())
 	}
-	ciphertext := make([]byte, b.Len()-32)
+	ciphertext := make([]byte, b.Len()-sha256.Size)
 	_, err = b.Read(ciphertext)
 	if err != nil {
 		return nil, errors.New("failed to read ciphertext")
 	}
-	messageMAC := make([]byte, 32)
-	_, err = b.Read(ciphertext)
+
+	messageMAC := make([]byte, sha256.Size)
+	_, err = b.Read(messageMAC)
 	if err != nil {
 		return nil, errors.New("failed to read mac")
 	}
@@ -548,17 +563,19 @@ func (key *PrivateKey) Decrypt(raw []byte, cipher *Cipher) ([]byte, error) {
 	hm := hmac.New(sha256.New, key_m)
 	hm.Write(raw[:len(raw)-32])
 	expectedMAC := hm.Sum(nil)
+
 	if !hmac.Equal(expectedMAC, messageMAC) {
 		return nil, errors.New("invalid mac address")
 	}
 
-	ctx, err := newDecryptionCipherCtx(cipher, key_e, iv)
+	ctx, err := NewDecryptionCipherCtx(cipher, key_e, iv)
 	if err != nil {
 		return nil, errors.New("failed to create cipher ctx: " + err.Error())
 	}
+
 	data, err := ctx.Decrypt(ciphertext)
 	if err != nil {
-		return nil, errors.New("failed to decrypt data: " + err.Error())
+		return nil, err
 	}
 
 	return data, nil

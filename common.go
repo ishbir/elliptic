@@ -6,5 +6,5 @@ type OpenSSLError struct {
 }
 
 func (err OpenSSLError) Error() string {
-	return "[OpenSSL] " + err.Function + " FAILED"
+	return "[OpenSSL] " + err.Function + " FAILED. " + errorFromErrorQueue().Error()
 }
