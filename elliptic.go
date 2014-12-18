@@ -26,6 +26,8 @@ static int BN_num_bytes_not_a_macro(BIGNUM* arg) {
 */
 import "C"
 
+const DisableUselessChecks bool = true
+
 // Curve repesents the ASN.1 OID of an elliptic curve.
 type Curve int16
 
@@ -136,8 +138,19 @@ func (key *PublicKey) Serialize() []byte {
 	return b.Bytes()
 }
 
+// SerializeUncompressed serializes a public key in a 65-byte uncompressed
+// format. Refer to https://github.com/conformal/btcec/blob/master/pubkey.go#L126
+func (key *PublicKey) SerializeUncompressed() []byte {
+	var b bytes.Buffer
+	b.Write([]byte{0x04}) // specifying that this is uncompressed
+	b.Write(key.X)
+	b.Write(key.Y)
+	return b.Bytes()
+}
+
 // Gets an *EC_KEY object from the given public and private keys. This function
 // was created because code for this was getting repeated in other functions.
+// Make sure to remember to free the returned *EC_KEY.
 func getEC_KEY(curve Curve, pubkey *PublicKey, privkey *PrivateKey) (*C.EC_KEY,
 	error) {
 	// initialization
@@ -204,7 +217,6 @@ type PrivateKey struct {
 // PrivateKeyFromBytes re-creates the private key from the binary format that it
 // was stored in.
 func PrivateKeyFromBytes(raw []byte) (*PrivateKey, error) {
-	key := new(PrivateKey)
 	var curve, keyLen int16
 	b := bytes.NewReader(raw)
 
@@ -212,27 +224,37 @@ func PrivateKeyFromBytes(raw []byte) (*PrivateKey, error) {
 	if err != nil {
 		return nil, errors.New("couldn't read curve")
 	}
-	key.Curve = Curve(curve)
 
 	err = binary.Read(b, binary.BigEndian, &keyLen)
 	if err != nil {
 		return nil, errors.New("couldn't read key len")
 	}
 
-	key.Key = make([]byte, keyLen)
-	err = binary.Read(b, binary.BigEndian, key.Key)
+	rawKey := make([]byte, keyLen)
+	err = binary.Read(b, binary.BigEndian, rawKey)
 	if err != nil {
 		return nil, errors.New("couldn't read private key")
 	}
 
-	err = key.derivePublicKey()
+	return PrivateKeyFromRawBytes(Curve(curve), rawKey)
+}
+
+// PrivateKeyFromRawBytes accepts a byte array which contains the private key
+// and creates a PrivateKey object based on that.
+func PrivateKeyFromRawBytes(curve Curve, raw []byte) (*PrivateKey, error) {
+	key := new(PrivateKey)
+	key.Curve = curve
+	key.Key = raw
+
+	err := key.derivePublicKey()
 	if err != nil {
 		return nil, errors.New("failed to derive public key: " + err.Error())
 	}
-
-	err = checkKey(key.Curve, &key.PublicKey, key)
-	if err != nil {
-		return nil, errors.New("key check failed: " + err.Error())
+	if !DisableUselessChecks {
+		err = checkKey(key.Curve, &key.PublicKey, key)
+		if err != nil {
+			return nil, errors.New("key check failed: " + err.Error())
+		}
 	}
 
 	return key, nil
@@ -329,9 +351,11 @@ func GeneratePrivateKey(curve Curve) (*PrivateKey, error) {
 	C.BN_bn2bin(pub_key_y, (*C.uchar)(unsafe.Pointer(&privateKey.PublicKey.Y[0])))
 
 	// do a sanity check to ensure that everything went as planned
-	err := checkKey(privateKey.Curve, &privateKey.PublicKey, privateKey)
-	if err != nil {
-		return nil, errors.New("key check failed: " + err.Error())
+	if !DisableUselessChecks {
+		err := checkKey(privateKey.Curve, &privateKey.PublicKey, privateKey)
+		if err != nil {
+			return nil, errors.New("key check failed: " + err.Error())
+		}
 	}
 
 	return privateKey, nil
