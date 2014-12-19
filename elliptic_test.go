@@ -70,15 +70,15 @@ func TestGetRawECDHKey(t *testing.T) {
 	if err != nil {
 		t.Fatal("private key fail generation failed:", err)
 	}
-	_, err = key1.GetRawECDHKey(failKey.PublicKey, 32)
+	_, err = key1.GetRawECDHKey(&failKey.PublicKey, 32)
 	if err != nil && err.Error() != "ECC keys must be from the same curve" {
 		t.Error("ECDH key generation succeeded with different curves")
 	}
-	sharedKey1, err := key1.GetRawECDHKey(key2.PublicKey, 48)
+	sharedKey1, err := key1.GetRawECDHKey(&key2.PublicKey, 48)
 	if err != nil {
 		t.Fatal("ECDH key generation failed:", err)
 	}
-	sharedKey2, err := key2.GetRawECDHKey(key1.PublicKey, 48)
+	sharedKey2, err := key2.GetRawECDHKey(&key1.PublicKey, 48)
 	if err != nil {
 		t.Fatal("ECDH key generation failed:", err)
 	}
@@ -155,7 +155,7 @@ func TestEncryption(t *testing.T) {
 
 	data := []byte("Hey there dude. How are you doing? This is a test.")
 
-	encData, err := key.Encrypt(privKey.PublicKey, data)
+	encData, err := key.Encrypt(&privKey.PublicKey, data)
 	if err != nil {
 		t.Fatal("failed to encrypt:", err)
 	}

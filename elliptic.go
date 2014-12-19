@@ -396,13 +396,13 @@ func (key *PrivateKey) Serialize() []byte {
 // GetRawECDHKey generates the raw ECDH key which must be passed through an
 // appropriate hashing function before being used for encryption/decryption.
 // The maximum length of the shared key is dependent on the curve used.
-func (key *PrivateKey) GetRawECDHKey(pubKey PublicKey, length int) ([]byte,
+func (key *PrivateKey) GetRawECDHKey(pubKey *PublicKey, length int) ([]byte,
 	error) {
 	if pubKey.Curve != key.Curve {
 		return nil, errors.New("ECC keys must be from the same curve")
 	}
 
-	otherKey, err := getEC_KEY(pubKey.Curve, &pubKey, nil)
+	otherKey, err := getEC_KEY(pubKey.Curve, pubKey, nil)
 	defer C.EC_KEY_free(otherKey)
 	if err != nil {
 		return nil, errors.New("creating other EC_KEY failed: " + err.Error())
@@ -528,7 +528,7 @@ func (key *PublicKey) VerifySignature(sig, rawData []byte) (bool, error) {
 //		// HMACSHA256 Message Authentication Code
 //		HMAC [32]byte
 //	}
-func (key *PrivateKey) Encrypt(pubkey PublicKey, data []byte) (
+func (key *PrivateKey) Encrypt(pubkey *PublicKey, data []byte) (
 	[]byte, error) {
 	// fixed at 32 for compatibility with pyelliptic
 	ecdhKey, err := key.GetRawECDHKey(pubkey, 32)
@@ -605,7 +605,7 @@ func (key *PrivateKey) Decrypt(raw []byte) ([]byte, error) {
 	}
 
 	// fixed at 32 for compatibility with pyelliptic
-	ecdhKey, err := key.GetRawECDHKey(*pubkey, 32)
+	ecdhKey, err := key.GetRawECDHKey(pubkey, 32)
 	if err != nil {
 		return nil, errors.New("failed to get ECDH key: " + err.Error())
 	}
