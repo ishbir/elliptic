@@ -158,8 +158,10 @@ func PublicKeyFromUncompressedBytes(curve Curve, raw []byte) (*PublicKey, error)
 	intLength := int(len(raw) / 2)
 	key := new(PublicKey)
 	key.Curve = curve
-	key.X = raw[:intLength]
-	key.Y = raw[intLength:]
+	key.X = make([]byte, intLength)
+	key.Y = make([]byte, intLength)
+	copy(key.X, raw[:intLength])
+	copy(key.Y, raw[intLength:])
 	return key, nil
 }
 
