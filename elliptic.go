@@ -148,6 +148,21 @@ func (key *PublicKey) SerializeUncompressed() []byte {
 	return b.Bytes()
 }
 
+// PublicKeyFromUncompressedBytes de-serializes a public key from the 65-byte
+// uncompressed format.
+func PublicKeyFromUncompressedBytes(curve Curve, raw []byte) (*PublicKey, error) {
+	if raw[0] != byte(0x04) || (len(raw)-1)%2 != 0 {
+		return nil, errors.New("not uncompressed format")
+	}
+	raw = raw[1:] // exclude the first byte
+	intLength := int(len(raw) / 2)
+	key := new(PublicKey)
+	key.Curve = curve
+	key.X = raw[:intLength]
+	key.Y = raw[intLength:]
+	return key, nil
+}
+
 // Gets an *EC_KEY object from the given public and private keys. This function
 // was created because code for this was getting repeated in other functions.
 // Make sure to remember to free the returned *EC_KEY.
