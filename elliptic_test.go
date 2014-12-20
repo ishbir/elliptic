@@ -155,7 +155,7 @@ func TestEncryption(t *testing.T) {
 
 	data := []byte("Hey there dude. How are you doing? This is a test.")
 
-	encData, err := key.Encrypt(&privKey.PublicKey, data)
+	encData, err := key.Encrypt(data, &privKey.PublicKey)
 	if err != nil {
 		t.Fatal("failed to encrypt:", err)
 	}

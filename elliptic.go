@@ -528,8 +528,7 @@ func (key *PublicKey) VerifySignature(sig, rawData []byte) (bool, error) {
 //		// HMACSHA256 Message Authentication Code
 //		HMAC [32]byte
 //	}
-func (key *PrivateKey) Encrypt(pubkey *PublicKey, data []byte) (
-	[]byte, error) {
+func (key *PrivateKey) Encrypt(data []byte, pubkey *PublicKey) ([]byte, error) {
 	// fixed at 32 for compatibility with pyelliptic
 	ecdhKey, err := key.GetRawECDHKey(pubkey, 32)
 	if err != nil {
@@ -573,6 +572,20 @@ func (key *PrivateKey) Encrypt(pubkey *PublicKey, data []byte) (
 	b.Write(mac)
 
 	return b.Bytes(), nil
+}
+
+// RandomPrivateKeyEncrypt encrypts by first generating a random private key and
+// then using that to generate the encrypted data.
+func RandomPrivateKeyEncrypt(data []byte, pubkey *PublicKey) ([]byte, error) {
+	privKey, err := GeneratePrivateKey(pubkey.Curve) // same curve
+	if err != nil {
+		return nil, errors.New("encryption key generation failed: " + err.Error())
+	}
+	encData, err := privKey.Encrypt(data, pubkey)
+	if err != nil {
+		return nil, err
+	}
+	return encData, nil
 }
 
 // Decrypt decrypts data that was encrypted using the Encrypt function.
