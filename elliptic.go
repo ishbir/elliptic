@@ -8,6 +8,7 @@ import (
 	"crypto/sha512"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"unsafe"
 )
@@ -94,6 +95,9 @@ func publicKeyFromBytesReader(b io.Reader) (*PublicKey, error) {
 	if err != nil {
 		return nil, errors.New("couldn't read X len")
 	}
+	if xLen <= 0 {
+		return nil, errors.New(fmt.Sprintf("%d", xLen) + " isn't a valid xLen")
+	}
 
 	key.X = make([]byte, xLen)
 	err = binary.Read(b, binary.BigEndian, key.X)
@@ -104,6 +108,9 @@ func publicKeyFromBytesReader(b io.Reader) (*PublicKey, error) {
 	err = binary.Read(b, binary.BigEndian, &yLen)
 	if err != nil {
 		return nil, errors.New("couldn't read Y len")
+	}
+	if yLen <= 0 {
+		return nil, errors.New(fmt.Sprintf("%d", yLen) + " isn't a valid yLen")
 	}
 
 	key.Y = make([]byte, yLen)
@@ -151,7 +158,9 @@ func (key *PublicKey) SerializeUncompressed() []byte {
 // PublicKeyFromUncompressedBytes de-serializes a public key from the 65-byte
 // uncompressed format.
 func PublicKeyFromUncompressedBytes(curve Curve, raw []byte) (*PublicKey, error) {
-	if raw[0] != byte(0x04) || (len(raw)-1)%2 != 0 {
+	// 0x04 as first byte specifies that this is uncompressed
+	// odd length is necessary as both X and Y occupy same number of bytes
+	if raw[0] != byte(0x04) || len(raw)%2 != 1 {
 		return nil, errors.New("not uncompressed format")
 	}
 	raw = raw[1:] // exclude the first byte
@@ -597,10 +606,12 @@ func (key *PrivateKey) Decrypt(raw []byte) ([]byte, error) {
 
 	b := bytes.NewReader(raw)
 	iv := make([]byte, cipher.IVSize())
+
 	_, err = b.Read(iv)
 	if err != nil {
 		return nil, errors.New("failed to read iv")
 	}
+
 	pubkey, err := publicKeyFromBytesReader(b)
 	if err != nil {
 		return nil, errors.New("failed to read public key: " + err.Error())
