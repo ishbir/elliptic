@@ -70,11 +70,7 @@ const (
 // InvalidMACError results when Message Authentication Check (MAC) fails during
 // decryption. This happens because of either invalid private key or corrupt
 // ciphertext.
-type InvalidMACError struct{}
-
-func (_ *InvalidMACError) Error() string {
-	return "invalid mac address"
-}
+var InvalidMACError = errors.New("invalid mac address")
 
 // PublicKey represents a public key which can be used for signature
 // verification, encryption etc.
@@ -651,7 +647,7 @@ func (key *PrivateKey) Decrypt(raw []byte) ([]byte, error) {
 	expectedMAC := hm.Sum(nil)
 
 	if !hmac.Equal(expectedMAC, messageMAC) {
-		return nil, &InvalidMACError{}
+		return nil, InvalidMACError
 	}
 
 	ctx, err := NewDecryptionCipherCtx(cipher, key_e, iv)
